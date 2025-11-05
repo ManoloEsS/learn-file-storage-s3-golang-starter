@@ -1,10 +1,11 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"os"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -42,7 +43,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	//get file and header from request
+	//get file data and header from request
 	file, header, err := r.FormFile("thumbnail")
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Couldn't get file", err)
@@ -51,15 +52,13 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	defer file.Close()
 
 	//get media type from thumbnail request header
-	mediaType := header.Header.Get("Content-Type")
-	if mediaType == "" {
-		respondWithError(w, http.StatusBadRequest, "Missing Content-Type for thumbnail", err)
-	}
-
-	//read image data from file into bytes
-	imageData, err := io.ReadAll(file)
+	mediaType, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error reading file", err)
+		respondWithError(w, http.StatusBadRequest, "Invalid Content-Type", err)
+	}
+	//only accept jpeg or png files
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Not a valid file", err)
 		return
 	}
 
@@ -76,14 +75,27 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	//encode imageData into base64 string
-	encodedImageData := base64.StdEncoding.EncodeToString(imageData)
+	//get file path
+	videoFilePath := getAssetPath(mediaType)
+	fullPath := cfg.getAssetDiskPath(videoFilePath)
 
-	//create dataURL
-	dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, encodedImageData)
+	//create file
+	videoFile, err := os.Create(fullPath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to create file in disk", err)
+		return
+	}
 
-	//assign dataURL to ThumbnailURL in the retrieved video
-	video.ThumbnailURL = &dataURL
+	//copy image file contents into videoFile
+	defer videoFile.Close()
+	if _, err = io.Copy(videoFile, file); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error saving file", err)
+		return
+	}
+
+	//assign path to file to ThumbnailURL in the retrieved video
+	thumbnailURL := cfg.getAssetURL(videoFilePath)
+	video.ThumbnailURL = &thumbnailURL
 
 	//update video data with added thumbnail data url
 	err = cfg.db.UpdateVideo(video)
