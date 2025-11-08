@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -116,7 +115,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	newVideoUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, key)
+	newVideoUrl := cfg.getObjectURL(key)
 	video.VideoURL = &newVideoUrl
 
 	err = cfg.db.UpdateVideo(video)
